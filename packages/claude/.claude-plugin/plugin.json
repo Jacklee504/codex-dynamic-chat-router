@@ -1,0 +1,10 @@
+{
+  "name": "dynamic-subchat-router",
+  "description": "Parent-led routing for bounded Claude Code subagents.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Jacklee504",
+    "url": "https://github.com/Jacklee504"
+  },
+  "license": "MIT"
+}

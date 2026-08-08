@@ -1,21 +1,21 @@
-# Releasing the plugin
+# Releasing packages
 
 ## Local validation
 
-Run both validators from the repository root:
+Run the Codex validators from the repository root:
 
 ```bash
-python3 /Users/jacklee/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/app-subchat-router
-python3 /Users/jacklee/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+python3 /Users/jacklee/.codex/skills/.system/skill-creator/scripts/quick_validate.py packages/codex/skills/app-subchat-router
+python3 /Users/jacklee/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py packages/codex
 ```
 
-Then forward-test the skill in a host that actually provides visible subchat
-controls. Test at least one route, one status request, one safe abort path, and
-one independent review path. Do not forward-test against production systems.
+Validate Claude locally with `claude plugin validate ./packages/claude` when the
+Claude CLI is available. Forward-test each package in its own host. Test route,
+status, safe abort, and independent review; never use production systems.
 
 ## Versioning
 
-Use semantic versioning in `.codex-plugin/plugin.json`.
+Use semantic versioning in each package manifest.
 
 - Patch: documentation, wording, and non-behavioral corrections.
 - Minor: new safe workflow behavior or compatible capability support.
@@ -24,12 +24,9 @@ Use semantic versioning in `.codex-plugin/plugin.json`.
 ## Publishing
 
 1. Create a tagged GitHub release from a validated commit.
-2. Keep the repository root intact; `.codex-plugin/plugin.json` and `skills/`
-   are the package entry points.
-3. Submit or register the package through the current Codex plugin distribution
-   channel. Follow the current official requirements rather than relying on this
-   document for marketplace-specific policy.
-4. Test the installed package in a fresh Codex task.
+2. Release `packages/codex/` and `packages/claude/` as separate plugin roots.
+3. Submit each package through its host’s current plugin distribution channel.
+4. Test each installed package in a fresh host session.
 
 Do not claim marketplace availability until the package has actually been
 accepted and published.
