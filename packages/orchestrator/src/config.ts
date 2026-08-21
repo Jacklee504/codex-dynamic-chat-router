@@ -1,0 +1,155 @@
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+
+import { parse } from "yaml";
+import { z } from "zod";
+
+import type { Effort, ProviderId, WorkerRole } from "./types.js";
+
+const providerSchema = z.enum(["claude", "codex", "ollama", "openrouter"]);
+const effortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
+const roleSchema = z.enum([
+  "architect",
+  "implementer",
+  "debugger",
+  "reviewer",
+  "researcher",
+  "test",
+  "log-analysis",
+]);
+
+const modelSchema = z.object({
+  id: z.string().min(1),
+  provider: providerSchema,
+  family: z.string().min(1),
+  model: z.string().min(1),
+  enabled: z.boolean(),
+  local: z.boolean(),
+  roles: z.record(roleSchema, z.number().int().min(0).max(10)),
+  efforts: z.array(effortSchema).min(1),
+  default_effort: effortSchema,
+  capabilities: z.object({
+    tools: z.boolean(),
+    vision: z.boolean(),
+    huge_context: z.boolean(),
+    write_safe: z.boolean(),
+  }),
+  limits: z.object({ context_tokens: z.number().int().positive() }).default({ context_tokens: 32_768 }),
+  cost: z.object({ input_per_million: z.number().nonnegative(), output_per_million: z.number().nonnegative() }).default({ input_per_million: 0, output_per_million: 0 }),
+  privacy: z.object({ private_code_allowed: z.boolean(), training_opt_out_required: z.boolean() }).default({ private_code_allowed: false, training_opt_out_required: true }),
+}).superRefine((model, context) => {
+  if (Object.values(model.roles).every((score) => score === 0)) {
+    context.addIssue({ code: "custom", message: "at least one role score must be positive" });
+  }
+  if (!model.efforts.includes(model.default_effort)) {
+    context.addIssue({ code: "custom", message: "default_effort must be allowed" });
+  }
+});
+
+const modelsConfigSchema = z.object({
+  version: z.literal(1),
+  models: z.array(modelSchema).min(1),
+}).superRefine((config, context) => {
+  const ids = new Set<string>();
+  for (const model of config.models) {
+    if (ids.has(model.id)) context.addIssue({ code: "custom", message: `Duplicate model id: ${model.id}` });
+    ids.add(model.id);
+  }
+});
+
+const routingPolicySchema = z.object({
+  version: z.literal(1),
+  phase: z.literal(2),
+  defaults: z.object({
+    readOnly: z.literal(true),
+    timeoutMs: z.number().int().positive(),
+  }),
+  rules: z.object({
+    automaticSelection: z.literal(true),
+    requireExplicitFallback: z.literal(true),
+    requireIndependentFamiliesForHighDiversity: z.literal(true),
+  }),
+  effort: z.object({
+    complexity: z.record(z.enum(["trivial", "normal", "difficult", "extreme"]), effortSchema),
+    minimumForRisk: z.record(z.enum(["low", "medium", "high"]), effortSchema),
+  }),
+  diversity: z.record(z.enum(["none", "low", "medium", "high"]), z.object({
+    minimumFamilies: z.number().int().min(1),
+    requireIndependentReview: z.boolean().optional(),
+  })),
+  budget: z.object({ mode: z.enum(["ignore", "prefer_free", "capped"]), max_estimated_cost_usd: z.number().nonnegative() }).default({ mode: "ignore", max_estimated_cost_usd: 0 }),
+});
+
+const pipelineStageSchema = z.object({
+  id: z.string().min(1), role: roleSchema, strategy: z.enum(["single", "fanout"]), readOnly: z.boolean(),
+  dependsOn: z.array(z.string().min(1)).optional(), diversity: z.enum(["none", "low", "medium", "high"]).optional(), preferredFamilies: z.array(z.string().min(1)).optional(),
+});
+const pipelinesSchema = z.object({ version: z.literal(1), templates: z.array(z.object({ id: z.string().min(1), stages: z.array(pipelineStageSchema).min(1) })).min(1) });
+
+export type ModelConfig = {
+  id: string;
+  provider: ProviderId;
+  family: string;
+  model: string;
+  enabled: boolean;
+  local: boolean;
+  roles: Record<WorkerRole, number>;
+  efforts: Effort[];
+  defaultEffort: Effort;
+  capabilities: { tools: boolean; vision: boolean; hugeContext: boolean; writeSafe: boolean };
+  limits: { contextTokens: number };
+  cost: { inputPerMillion: number; outputPerMillion: number };
+  privacy: { privateCodeAllowed: boolean; trainingOptOutRequired: boolean };
+};
+
+export type RouterConfig = {
+  models: ModelConfig[];
+  policy: z.infer<typeof routingPolicySchema>;
+  pipelines: z.infer<typeof pipelinesSchema>["templates"];
+};
+
+export function parseConfig(modelsText: string, policyText: string, pipelinesText = "version: 1\ntemplates:\n  - id: default\n    stages:\n      - id: stage\n        role: reviewer\n        strategy: single\n        readOnly: true"): RouterConfig {
+  const models = modelsConfigSchema.parse(parse(modelsText));
+  const policy = routingPolicySchema.parse(parse(policyText));
+  const pipelines = pipelinesSchema.parse(parse(pipelinesText));
+  return {
+    models: models.models.map((model) => ({
+      id: model.id,
+      provider: model.provider,
+      family: model.family,
+      model: model.model,
+      enabled: model.enabled,
+      local: model.local,
+      roles: model.roles,
+      efforts: model.efforts,
+      defaultEffort: model.default_effort,
+      capabilities: {
+        tools: model.capabilities.tools,
+        vision: model.capabilities.vision,
+        hugeContext: model.capabilities.huge_context,
+        writeSafe: model.capabilities.write_safe,
+      },
+      limits: { contextTokens: model.limits.context_tokens },
+      cost: { inputPerMillion: model.cost.input_per_million, outputPerMillion: model.cost.output_per_million },
+      privacy: { privateCodeAllowed: model.privacy.private_code_allowed, trainingOptOutRequired: model.privacy.training_opt_out_required },
+    })),
+    policy, pipelines: pipelines.templates,
+  };
+}
+
+export async function loadConfig(configDir = resolve(process.cwd(), "config")): Promise<RouterConfig> {
+  const [modelsText, policyText, pipelinesText] = await Promise.all([
+    readFile(resolve(configDir, "models.yaml"), "utf8"),
+    readFile(resolve(configDir, "routing-policy.yaml"), "utf8"),
+    readFile(resolve(configDir, "pipelines.yaml"), "utf8"),
+  ]);
+  return parseConfig(modelsText, policyText, pipelinesText);
+}
+
+export function repositoryRootFromConfig(configDir: string): string {
+  return dirname(resolve(configDir));
+}
+
+export function findModel(config: RouterConfig, identifier: string): ModelConfig | undefined {
+  return config.models.find((model) => model.enabled && (model.id === identifier || model.model === identifier));
+}

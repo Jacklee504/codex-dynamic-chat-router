@@ -1,0 +1,57 @@
+import { repositoryRootFromConfig, type RouterConfig } from "../config.js";
+import { compactTaskPrompt } from "../contracts.js";
+import { requiredFamilies } from "../routing/diversity.js";
+import { selectEffort } from "../routing/effort.js";
+import { configuredModel, modelAvailability } from "../routing/runtime.js";
+import { eligibleSelections } from "../routing/selector.js";
+import { writeRunLog } from "../telemetry/run-log.js";
+import type { Provider, RoutingMetadata, TaskProfile, WorkerRequest, WorkerResult } from "../types.js";
+
+export type FanoutRun = { model: string; result: WorkerResult; runLog: string; routing: RoutingMetadata };
+
+export async function runFanout(
+  configDir: string,
+  config: RouterConfig,
+  providers: Record<string, Provider>,
+  prompt: string,
+  cwd: string,
+  profile: TaskProfile,
+  requestedFamilies?: number,
+  signal?: AbortSignal,
+): Promise<FanoutRun[]> {
+  const minimumFamilies = requestedFamilies ?? requiredFamilies(config, profile.diversity);
+  if (minimumFamilies < 2) throw new Error("dtr fanout requires at least two independent families");
+  const availability = await modelAvailability(config, providers);
+  const preferred = eligibleSelections(config, profile);
+  const selections = eligibleSelections(config, profile, availability).slice(0, minimumFamilies);
+  if (selections.length < minimumFamilies) {
+    throw new Error(`Degraded routing: requires ${minimumFamilies} independent model families; only ${selections.length} eligible`);
+  }
+  return Promise.all(selections.map(async (selection) => {
+    const model = configuredModel(config, selection.model);
+    const effort = selectEffort(config, model, profile);
+    const request: WorkerRequest = {
+      prompt: compactTaskPrompt(prompt),
+      cwd,
+      role: profile.role,
+      model: model.model,
+      effort: effort.effective,
+      readOnly: true,
+      timeoutMs: config.policy.defaults.timeoutMs,
+      ...(signal ? { signal } : {}),
+    };
+    const provider = providers[model.provider];
+    if (!provider) throw new Error(`Provider '${model.provider}' is not implemented`);
+    const result = await provider.run(request);
+    const routing: RoutingMetadata = {
+      profile,
+      selectedModel: model.id,
+      selection: selection.explanation,
+      requestedEffort: effort.requested,
+      effectiveEffort: effort.effective,
+      ...(preferred[0] && preferred[0].model !== model.id ? { fallbackFrom: preferred[0].model } : {}),
+    };
+    const runLog = await writeRunLog(repositoryRootFromConfig(configDir), request, result, routing);
+    return { model: model.id, result, runLog, routing };
+  }));
+}

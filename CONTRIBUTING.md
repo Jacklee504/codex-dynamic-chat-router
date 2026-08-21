@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for improving Dynamic Subchat Router.
+Thanks for improving Dynamic Task Router.
 
 ## Design constraints
 
@@ -18,8 +18,9 @@ Contributions must preserve these guarantees:
 1. Make a focused change.
 2. Keep worker I/O to the five-field contract in `core/routing-contract.md`.
 3. Keep host-neutral behavior in `core/` and host controls in its package.
-   Qwen worker profiles may use `model: fast`, but do not hard-code credentials
-   or a provider-specific model ID in the extension.
+   Qwen task targets may use `fast`, inherited models, or user-configured model
+   grades, but do not hard-code credentials or a provider-specific model ID in
+   the extension.
 4. Run the relevant validator listed in [docs/RELEASING.md](docs/RELEASING.md).
 5. Include validation evidence in the pull request.
 

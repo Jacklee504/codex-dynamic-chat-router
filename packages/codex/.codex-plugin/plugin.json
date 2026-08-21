@@ -1,5 +1,5 @@
 {
-  "name": "app-subchat-router",
+  "name": "app-task-router",
   "version": "0.1.0",
   "description": "Route bounded Codex work through visible, parent-owned subchats.",
   "author": {
@@ -10,16 +10,16 @@
   "keywords": ["codex", "subchats", "delegation", "orchestration", "workflow"],
   "skills": "./skills/",
   "interface": {
-    "displayName": "App Subchat Router",
+    "displayName": "App Task Router",
     "shortDescription": "Route bounded work through visible Codex subchats.",
     "longDescription": "A safety-oriented workflow for decomposing work into visible, parent-owned Codex subchats with explicit scope, evidence, and review.",
     "developerName": "Jacklee504",
     "category": "Productivity",
     "capabilities": ["Interactive"],
     "defaultPrompt": [
-      "Use $app-subchat-router to route this implementation into safe subchats.",
-      "Use $app-subchat-router to report the status of the active routing run.",
-      "Use $app-subchat-router to hand off the completed subchats."
+      "Use $app-task-router to route this implementation into safe subchats.",
+      "Use $app-task-router to report the status of the active routing run.",
+      "Use $app-task-router to hand off the completed subchats."
     ]
   }
 }

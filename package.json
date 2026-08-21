@@ -1,0 +1,23 @@
+{
+  "name": "dynamic-task-router",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "dtr": "./packages/orchestrator/dist/cli.js",
+    "dtr-mcp": "./packages/orchestrator/dist/mcp.js"
+  },
+  "workspaces": [
+    "packages/orchestrator",
+    "packages/tui"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @dynamic-task-router/orchestrator && npm run build --workspace @dynamic-task-router/tui",
+    "test": "npm run test --workspace @dynamic-task-router/orchestrator && npm run test --workspace @dynamic-task-router/tui",
+    "dtr": "npm run dtr --workspace @dynamic-task-router/orchestrator --",
+    "dtr:mcp": "npm run mcp --workspace @dynamic-task-router/orchestrator",
+    "link:local": "npm run build && npm link"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

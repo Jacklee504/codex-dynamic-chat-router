@@ -1,0 +1,55 @@
+version: 1
+templates:
+  - id: debug-review
+    stages:
+      - id: diagnose
+        role: debugger
+        strategy: single
+        readOnly: true
+      - id: independent-diagnose
+        role: debugger
+        strategy: single
+        readOnly: true
+        dependsOn: [diagnose]
+        diversity: medium
+      - id: review
+        role: reviewer
+        strategy: single
+        readOnly: true
+        dependsOn: [diagnose, independent-diagnose]
+        diversity: medium
+  - id: plan-challenge-review
+    stages:
+      - id: plan
+        role: architect
+        strategy: single
+        readOnly: true
+      - id: challenge
+        role: reviewer
+        strategy: single
+        readOnly: true
+        dependsOn: [plan]
+        diversity: medium
+      - id: review
+        role: reviewer
+        strategy: single
+        readOnly: true
+        dependsOn: [plan, challenge]
+        diversity: medium
+  - id: implement-review
+    stages:
+      - id: implement
+        role: implementer
+        strategy: single
+        readOnly: false
+      - id: verify
+        role: test
+        strategy: single
+        readOnly: true
+        dependsOn: [implement]
+      - id: review
+        role: reviewer
+        strategy: single
+        readOnly: true
+        dependsOn: [implement, verify]
+        diversity: medium

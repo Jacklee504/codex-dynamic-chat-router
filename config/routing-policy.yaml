@@ -1,0 +1,20 @@
+version: 1
+phase: 2
+defaults:
+  readOnly: true
+  timeoutMs: 120000
+rules:
+  automaticSelection: true
+  requireExplicitFallback: true
+  requireIndependentFamiliesForHighDiversity: true
+effort:
+  complexity: { trivial: low, normal: medium, difficult: high, extreme: xhigh }
+  minimumForRisk: { low: low, medium: medium, high: high }
+diversity:
+  none: { minimumFamilies: 1 }
+  low: { minimumFamilies: 1 }
+  medium: { minimumFamilies: 2 }
+  high: { minimumFamilies: 2, requireIndependentReview: true }
+budget:
+  mode: ignore
+  max_estimated_cost_usd: 0.50

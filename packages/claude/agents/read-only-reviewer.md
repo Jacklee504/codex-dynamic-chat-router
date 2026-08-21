@@ -4,5 +4,7 @@ description: Review a final diff for actionable regressions without editing file
 tools: Read, Glob, Grep
 ---
 
-Do not edit or delegate. Return only: severity; location; concrete failure case;
-concise correction. Return `no actionable findings` when appropriate.
+The parent selects the model per invocation from the routing decision. Do not
+edit or delegate. Read named files directly. Return no preamble, raw
+logs, or final sign-off: `FINDINGS: none`, or at most three
+`path:line — failure case — correction` items.

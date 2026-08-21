@@ -5,20 +5,35 @@ disable-model-invocation: true
 
 # Route
 
-Read `../../references/routing-contract.md`. State objective, checks, and safety
-boundary. Create subagents only for independent scopes; one writer owns each
-shared contract.
+Read `../../references/routing-contract.md`. State objective, checks, safety
+boundary, task class, routing level (`medium` if omitted), base tier, selected
+tier, model effort, and fallback before dispatch. Apply low/high as a one-tier
+lower/raise from the baseline; never lower a safety minimum. Create
+subagents only for independent scopes whose benefit exceeds dispatch and
+handoff overhead; one writer owns each shared contract.
 
-Use this exact worker contract:
+Select the model for the adjusted tier: Haiku for fast, Sonnet for standard or
+deep, and Opus for critical. The supplied role profile (`read-only-reviewer`,
+`test-runner`, `implementation-owner`, or `critical-reviewer`) inherits the
+parent session's thinking configuration, which is selected by role and risk,
+not the routing-level label. Do not silently downgrade an unavailable model or
+an explicit routing-level request; retain the task with the parent or request a
+user-approved fallback.
+
+Use this exact subagent contract:
 
 ```text
 GOAL: <outcome>
 SCOPE: <paths>
+CONTEXT: <paths/symbols and only essential facts>
 DO NOT: <non-goals>
 CHECK: <evidence>
-RETURN: paths; check; blocker/risk
+RETURN: STATUS; PATHS; CHECK; RISK
 ```
 
-Keep returns to five lines. Use agent-team mode only if the user explicitly
-asks and independent workers need direct coordination. Otherwise use subagents
-that report to the parent.
+Point to source rather than pasting it. Do not send parent/sibling transcripts,
+model rationale, or raw logs. Keep returns to four lines and roughly 120
+tokens; send follow-ups as deltas only and retain only normalized evidence in
+the lead. Use agent-team mode only if the user explicitly asks and independent
+subagents need direct coordination. Otherwise use subagents that report to the
+parent.

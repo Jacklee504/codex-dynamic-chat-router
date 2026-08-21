@@ -1,0 +1,131 @@
+import { EventEmitter } from "node:events";
+import { readdir } from "node:fs/promises";
+import { resolve } from "node:path";
+import { loadConfig, type ModelConfig, type RouterConfig } from "./config.js";
+import { NodeProcessRunner } from "./process.js";
+import { createProviders } from "./providers/index.js";
+import { classifyTask } from "./routing/classifier.js";
+import { selectEffort } from "./routing/effort.js";
+import { modelAvailability } from "./routing/runtime.js";
+import { selectModel } from "./routing/selector.js";
+import { summarizeRuns } from "./stats.js";
+import { runFanout } from "./strategies/fanout.js";
+import { runPipeline } from "./strategies/pipeline.js";
+import { runSingle } from "./strategies/single.js";
+import { createRunRecord, readRunRecord, writeRunRecord, type RunRecord } from "./telemetry/run-registry.js";
+import type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
+export type { Effort, ProviderId, TaskProfile, WorkerResult, WorkerRole } from "./types.js";
+export type { RunRecord } from "./telemetry/run-registry.js";
+
+export type DtrEvent =
+  | { type: "run-created"; runId: string; task: string; timestamp: string }
+  | { type: "route-selected"; runId: string; model: string; provider: ProviderId; effort: Effort; timestamp: string }
+  | { type: "worker-started"; runId: string; workerId: string; provider: ProviderId; model: string; role: WorkerRole; effort: Effort; timestamp: string }
+  | { type: "worker-completed"; runId: string; workerId: string; result: WorkerResult; timestamp: string }
+  | { type: "worker-failed"; runId: string; workerId: string; error: string; timestamp: string }
+  | { type: "run-aborting"; runId: string; timestamp: string }
+  | { type: "run-completed"; runId: string; outcome: string; timestamp: string }
+  | { type: "run-failed"; runId: string; error: string; timestamp: string };
+
+export type SelectionRequest = {
+  prompt: string;
+  role: WorkerRole;
+  profile?: Partial<Omit<TaskProfile, "role">> | undefined;
+  provider?: ProviderId | undefined;
+  modelId?: string | undefined;
+  effort?: Effort | undefined;
+};
+export type RunRequest = SelectionRequest & { cwd: string };
+export type RunResult = { runId: string; routing: Awaited<ReturnType<typeof runSingle>>["routing"]; result: WorkerResult };
+export type ProviderView = { id: ProviderId; healthy: boolean; enabled: boolean; models: string[] };
+export type ModelView = ModelConfig & { available: boolean };
+export type AbortResult = { runId: string; accepted: boolean; state: "aborting" | "unavailable" };
+export type OllamaRuntime = { available: boolean; models: Array<{ name: string; sizeBytes?: number; runtimeSizeBytes?: number; contextLength?: number; expiresAt?: string }>; unavailableReason?: string };
+
+export class DtrApplication {
+  private readonly events = new EventEmitter();
+  private readonly active = new Map<string, AbortController>();
+  private readonly providers = createProviders(new NodeProcessRunner());
+
+  constructor(private readonly configDir: string, private readonly defaultCwd = process.cwd()) {}
+
+  onEvent(listener: (event: DtrEvent) => void): () => void { this.events.on("event", listener); return () => this.events.off("event", listener); }
+  private emit(event: DtrEvent): void { this.events.emit("event", event); }
+  private async config(): Promise<RouterConfig> { return loadConfig(this.configDir); }
+  private profile(input: SelectionRequest): TaskProfile {
+    return classifyTask(input.prompt, input.role, {
+      ...(input.profile ?? {}),
+      ...(input.provider ? { allowedProviders: [input.provider] } : {}),
+    });
+  }
+
+  async health(): Promise<ProviderView[]> {
+    const config = await this.config();
+    return Promise.all(Object.entries(this.providers).map(async ([id, provider]) => ({ id: id as ProviderId, healthy: await provider.health(), enabled: config.models.some((model) => model.provider === id && model.enabled), models: config.models.filter((model) => model.provider === id && model.enabled).map((model) => model.id) })));
+  }
+
+  async listModels(): Promise<ModelView[]> {
+    const config = await this.config(); const availability = await modelAvailability(config, this.providers);
+    return config.models.map((model) => ({ ...model, available: Boolean(availability[model.id]) }));
+  }
+  async listProviders(): Promise<ProviderView[]> { return this.health(); }
+  async ollamaRuntime(): Promise<OllamaRuntime> { return readOllamaRuntime(); }
+  async select(input: SelectionRequest) {
+    const config = await this.config(); const profile = this.profile(input); const availability = await modelAvailability(config, this.providers);
+    const selection = selectModel(config, profile, availability, new Set(), input.modelId ? { modelId: input.modelId } : {});
+    if (!selection) throw new Error("No eligible model: constraints cannot be safely satisfied");
+    const model = config.models.find((candidate) => candidate.id === selection.model)!;
+    const baseline = selectEffort(config, model, profile);
+    const effort = input.effort ? { requested: input.effort, effective: model.efforts.includes(input.effort) ? input.effort : baseline.effective } : baseline;
+    return { profile, selection, model, effort };
+  }
+
+  async run(input: RunRequest): Promise<RunResult> {
+    const config = await this.config(); const profile = this.profile(input); const record = await createRunRecord(input.cwd || this.defaultCwd, "single");
+    const controller = new AbortController(); this.active.set(record.id, controller);
+    this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
+    try {
+      const selected = await this.select(input);
+      this.emit({ type: "route-selected", runId: record.id, model: selected.model.id, provider: selected.model.provider, effort: selected.effort.effective, timestamp: now() });
+      record.state = "running"; record.stages = [{ id: "route", state: "running", model: selected.model.id }]; await writeRunRecord(input.cwd, record);
+      this.emit({ type: "worker-started", runId: record.id, workerId: "route", provider: selected.model.provider, model: selected.model.id, role: profile.role, effort: selected.effort.effective, timestamp: now() });
+      const run = await runSingle(this.configDir, config, this.providers, input.prompt, input.cwd, profile, { ...(input.modelId ? { modelId: input.modelId } : {}), ...(input.effort ? { effort: input.effort } : {}), signal: controller.signal });
+      const aborted = controller.signal.aborted;
+      record.stages[0]!.state = aborted ? "aborted" : run.result.success ? "succeeded" : "failed"; record.state = aborted ? "aborted" : run.result.success ? "succeeded" : "failed"; record.endedAt = now(); if (!run.result.success && !aborted) record.error = safeError(run.result.error ?? "Worker failed"); await writeRunRecord(input.cwd, record);
+      if (aborted) this.emit({ type: "run-completed", runId: record.id, outcome: "aborted", timestamp: now() });
+      else if (run.result.success) { this.emit({ type: "worker-completed", runId: record.id, workerId: "route", result: run.result, timestamp: now() }); this.emit({ type: "run-completed", runId: record.id, outcome: "succeeded", timestamp: now() }); }
+      else { this.emit({ type: "worker-failed", runId: record.id, workerId: "route", error: record.error ?? "Worker failed", timestamp: now() }); this.emit({ type: "run-failed", runId: record.id, error: record.error ?? "Worker failed", timestamp: now() }); }
+      return { runId: record.id, routing: run.routing, result: run.result };
+    } catch (error) {
+      record.state = controller.signal.aborted ? "aborted" : "failed"; record.error = safeError(error); record.endedAt = now(); await writeRunRecord(input.cwd, record); if (controller.signal.aborted) this.emit({ type: "run-completed", runId: record.id, outcome: "aborted", timestamp: now() }); else this.emit({ type: "run-failed", runId: record.id, error: record.error, timestamp: now() }); throw error;
+    } finally { this.active.delete(record.id); }
+  }
+
+  async fanout(input: RunRequest & { families?: number | undefined }): Promise<Array<{ runId: string; model: string; result: WorkerResult }>> {
+    const config = await this.config(); const profile = { ...this.profile(input), diversity: "medium" as const }; const record = await createRunRecord(input.cwd || this.defaultCwd, "fanout"); const controller = new AbortController(); this.active.set(record.id, controller); this.emit({ type: "run-created", runId: record.id, task: safeTask(input.prompt), timestamp: record.startedAt });
+    try {
+      record.state = "running"; await writeRunRecord(input.cwd, record); const runs = await runFanout(this.configDir, config, this.providers, input.prompt, input.cwd, profile, input.families, controller.signal);
+      record.state = runs.every((run) => run.result.success) ? "succeeded" : "failed"; record.endedAt = now(); record.stages = runs.map((run) => ({ id: run.model, model: run.model, state: run.result.success ? "succeeded" : "failed" })); await writeRunRecord(input.cwd, record); this.emit({ type: "run-completed", runId: record.id, outcome: record.state, timestamp: now() }); return runs.map((run) => ({ runId: record.id, model: run.model, result: run.result }));
+    } finally { this.active.delete(record.id); }
+  }
+
+  async pipeline(input: RunRequest & { template: string; write?: boolean; scope?: string[] }) { const config = await this.config(); return runPipeline(config, this.providers, input.template, input.prompt, input.cwd, this.profile(input), { write: input.write, scope: input.scope }); }
+  async abort(runId: string): Promise<AbortResult> { const controller = this.active.get(runId); if (!controller) return { runId, accepted: false, state: "unavailable" }; this.emit({ type: "run-aborting", runId, timestamp: now() }); controller.abort(); return { runId, accepted: true, state: "aborting" }; }
+  async getRun(runId: string): Promise<RunRecord | null> { try { return await readRunRecord(this.defaultCwd, runId); } catch { return null; } }
+  async listRuns(limit = 30): Promise<RunRecord[]> { try { const entries = (await readdir(resolve(this.defaultCwd, ".dtr", "runs"))).filter((entry) => entry.endsWith(".status.json")).sort().reverse().slice(0, limit); return Promise.all(entries.map((entry) => readRunRecord(this.defaultCwd, entry.replace(".status.json", "")))); } catch { return []; } }
+  async stats() { return summarizeRuns(this.defaultCwd); }
+}
+
+function now(): string { return new Date().toISOString(); }
+function safeTask(value: string): string { return value.replace(/\s+/g, " ").trim().slice(0, 160); }
+export function safeError(error: unknown): string { return String(error instanceof Error ? error.message : error).replace(/(?:ANTHROPIC|OPENAI|OPENROUTER)_API_KEY\s*=\s*\S+/gi, "[redacted]").replace(/Authorization:\s*Bearer\s+\S+/gi, "Authorization: [redacted]").slice(0, 400); }
+export async function readOllamaRuntime(fetcher: typeof fetch = fetch): Promise<OllamaRuntime> {
+  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 1_500);
+  try {
+    const response = await fetcher("http://127.0.0.1:11434/api/ps", { signal: controller.signal });
+    if (!response.ok) return { available: false, models: [], unavailableReason: `Ollama runtime returned ${response.status}` };
+    const body = await response.json() as { models?: Array<{ name?: string; size?: number; size_vram?: number; context_length?: number; expires_at?: string }> };
+    return { available: true, models: (body.models ?? []).filter((model): model is Required<Pick<typeof model, "name">> & typeof model => Boolean(model.name)).map((model) => ({ name: model.name, ...(model.size !== undefined ? { sizeBytes: model.size } : {}), ...(model.size_vram !== undefined ? { runtimeSizeBytes: model.size_vram } : {}), ...(model.context_length !== undefined ? { contextLength: model.context_length } : {}), ...(model.expires_at ? { expiresAt: model.expires_at } : {}) })) };
+  } catch { return { available: false, models: [], unavailableReason: "Ollama runtime unavailable" }; }
+  finally { clearTimeout(timer); }
+}

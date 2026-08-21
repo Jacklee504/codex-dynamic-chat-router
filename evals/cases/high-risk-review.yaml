@@ -1,0 +1,10 @@
+id: high-risk-review
+role: reviewer
+complexity: difficult
+risk: high
+diversity: medium
+expect:
+  minimum_effort: high
+  independent_family: true
+  read_only: true
+  minimum_reviewer_score: 8

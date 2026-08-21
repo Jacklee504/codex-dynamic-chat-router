@@ -3,3 +3,7 @@
 *.swo
 .idea/
 .vscode/
+.dtr/
+node_modules/
+dist/
+coverage/

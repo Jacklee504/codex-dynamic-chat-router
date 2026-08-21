@@ -1,0 +1,9 @@
+id: local-log-analysis
+role: log-analysis
+complexity: normal
+risk: low
+local_only: true
+expect:
+  minimum_effort: medium
+  local: true
+  read_only: true

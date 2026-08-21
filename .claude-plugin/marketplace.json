@@ -1,0 +1,14 @@
+{
+  "name": "dynamic-task-router",
+  "owner": {
+    "name": "Jacklee504",
+    "url": "https://github.com/Jacklee504"
+  },
+  "plugins": [
+    {
+      "name": "dynamic-task-router",
+      "source": "./packages/claude",
+      "description": "Parent-led routing for bounded Claude Code subagents."
+    }
+  ]
+}

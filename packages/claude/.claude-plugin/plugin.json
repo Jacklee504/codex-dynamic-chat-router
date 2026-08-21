@@ -1,5 +1,5 @@
 {
-  "name": "dynamic-subchat-router",
+  "name": "dynamic-task-router",
   "description": "Parent-led routing for bounded Claude Code subagents.",
   "version": "0.1.0",
   "author": {

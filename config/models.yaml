@@ -1,0 +1,108 @@
+version: 1
+# These scores are hand-maintained routing priors, not benchmark claims.
+# 0 means the model is ineligible for that role; 10 is the strongest initial fit.
+models:
+  - id: claude-haiku
+    provider: claude
+    family: anthropic
+    model: haiku
+    enabled: true
+    local: false
+    roles: { architect: 0, implementer: 0, debugger: 0, reviewer: 6, researcher: 8, test: 5, log-analysis: 7 }
+    efforts: [low, medium, high]
+    default_effort: low
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true }
+    limits: { context_tokens: 200000 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: true, training_opt_out_required: false }
+  - id: claude-sonnet
+    provider: claude
+    family: anthropic
+    model: sonnet
+    enabled: true
+    local: false
+    roles: { architect: 8, implementer: 8, debugger: 8, reviewer: 9, researcher: 8, test: 8, log-analysis: 8 }
+    efforts: [low, medium, high, max]
+    default_effort: medium
+    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true }
+    limits: { context_tokens: 200000 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: true, training_opt_out_required: false }
+  - id: claude-opus
+    provider: claude
+    family: anthropic
+    model: opus
+    enabled: true
+    local: false
+    roles: { architect: 10, implementer: 7, debugger: 9, reviewer: 10, researcher: 9, test: 7, log-analysis: 7 }
+    efforts: [medium, high, max]
+    default_effort: high
+    capabilities: { tools: true, vision: true, huge_context: true, write_safe: true }
+    limits: { context_tokens: 200000 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: true, training_opt_out_required: false }
+  - id: codex-luna
+    provider: codex
+    family: openai
+    model: gpt-5.6-luna
+    enabled: true
+    local: false
+    roles: { architect: 5, implementer: 8, debugger: 7, reviewer: 7, researcher: 7, test: 8, log-analysis: 8 }
+    efforts: [low, medium, high, xhigh, max]
+    default_effort: medium
+    capabilities: { tools: true, vision: false, huge_context: false, write_safe: true }
+    limits: { context_tokens: 128000 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: true, training_opt_out_required: false }
+  - id: codex-terra
+    provider: codex
+    family: openai
+    model: gpt-5.6-terra
+    enabled: true
+    local: false
+    roles: { architect: 9, implementer: 9, debugger: 9, reviewer: 10, researcher: 8, test: 9, log-analysis: 8 }
+    efforts: [low, medium, high, xhigh, max]
+    default_effort: high
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true }
+    limits: { context_tokens: 400000 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: true, training_opt_out_required: false }
+  - id: codex-sol
+    provider: codex
+    family: openai
+    model: gpt-5.6-sol
+    enabled: true
+    local: false
+    roles: { architect: 10, implementer: 8, debugger: 10, reviewer: 10, researcher: 8, test: 8, log-analysis: 8 }
+    efforts: [low, medium, high, xhigh, max]
+    default_effort: high
+    capabilities: { tools: true, vision: false, huge_context: true, write_safe: true }
+    limits: { context_tokens: 400000 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: true, training_opt_out_required: false }
+  - id: qwen-local
+    provider: ollama
+    family: qwen
+    model: qwen3.5:9b
+    enabled: true
+    local: true
+    roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 6, researcher: 7, test: 7, log-analysis: 9 }
+    efforts: [low, medium, high]
+    default_effort: medium
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
+    limits: { context_tokens: 4096 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: true, training_opt_out_required: false }
+  - id: openrouter-qwen-free
+    provider: openrouter
+    family: qwen
+    model: qwen/qwen3-8b:free
+    enabled: false
+    local: false
+    roles: { architect: 4, implementer: 5, debugger: 5, reviewer: 5, researcher: 7, test: 6, log-analysis: 6 }
+    efforts: [low, medium, high]
+    default_effort: medium
+    capabilities: { tools: false, vision: false, huge_context: false, write_safe: false }
+    limits: { context_tokens: 32768 }
+    cost: { input_per_million: 0, output_per_million: 0 }
+    privacy: { private_code_allowed: false, training_opt_out_required: true }

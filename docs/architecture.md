@@ -1,7 +1,32 @@
 # Architecture
 
-`core/` is the source of truth for behavior. Platform packages are adapters,
-not forks of the workflow:
+## Executable runtime
+
+`packages/orchestrator/` is a host-neutral local service layer. Codex or Claude
+Code can lead through its STDIO MCP server; provider adapters remain behind the
+router. The runtime performs deterministic selection, read-only fan-out,
+metadata-only telemetry, explicit pipelines, and opt-in isolated worktrees.
+
+```text
+TUI / CLI / Codex / Claude Code / MCP client
+             │
+             ▼
+     Dynamic Task Router application API
+             │
+             ▼
+      MCP and CLI adapters
+       ├── Claude adapter
+       ├── Codex adapter
+       ├── local Ollama adapter
+       └── OpenRouter adapter (optional, disabled by default)
+```
+
+The lead retains planning, integration, and final approval. See
+[MCP](mcp.md), [pipelines](pipelines.md), [worktrees](worktrees.md), and
+[providers](providers.md).
+
+`core/` is the source of truth for behavior and model-tier selection. Platform
+packages are adapters, not forks of the workflow:
 
 ```text
 core contract
@@ -11,14 +36,23 @@ core contract
 ```
 
 Keep adapter instructions host-specific and task-local. Keep common rules in
-the core. Do not make worker prompts carry the entire core document: workers
-receive only goal, scope, non-goals, check, and return contract.
+the core. Do not make subchat or subagent prompts carry the entire core
+document: they receive only goal, scope, named paths/symbols, non-goals, check,
+and return contract. The parent does not copy child transcripts into its own
+context; it retains one compact decision record and structured evidence only.
+
+The [model routing policy](../core/model-routing-policy.md) classifies routed
+tasks as fast, standard, deep, or critical, then applies a low/medium/high
+routing-level adjustment. Each adapter maps those abstract tiers to host-native
+models and controls, and selects model effort independently by role where the
+host permits it; it must report an unavailable tier instead of silently choosing
+a cheaper one.
 
 Claude agent teams are an explicit extension of the Claude adapter, not the
-default. They are appropriate only when independent workers need peer-to-peer
+default. They are appropriate only when independent subagents need peer-to-peer
 coordination.
 
-Qwen's native adapter gives routine implementation and test workers its `fast`
-model selector. That selector is configured by the user; the adapter never
-ships a provider credential or hard-coded model ID. The parent owns integration
-and can use a stronger session model when the task warrants it.
+Qwen's native adapter uses user-configured model grades or its `fast` selector.
+It never ships a provider credential or hard-coded model ID. The parent owns
+integration and retains tasks that require an unavailable deep or critical
+grade.
